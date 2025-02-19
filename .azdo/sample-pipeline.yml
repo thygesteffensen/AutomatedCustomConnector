@@ -1,0 +1,89 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+parameters:
+  - name: connectorId
+    type: string
+    default: '<some-guide>'
+  - name: environmentUrl
+    type: string
+    default: 'https://<some-environment>.crm4.dynamics.com'
+#    description: 'Only URL is accepted as environment descriptor using service principal'
+
+#variables:
+#  - group: 'Some group'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - checkout: self
+
+  - task: UseDotNet@2
+    inputs:
+      packageType: 'sdk'
+      version: '9.0.x'
+      installationPath: $(Agent.ToolsDirectory)/dotnet
+
+  - script: dotnet tool install --global Microsoft.PowerApps.CLI.Tool
+    displayName: 'Install PowerApps CLI (pac)'
+
+  - script: mkdir out
+    displayName: 'Create output directory'
+
+  - script: dotnet restore
+    displayName: 'Restore dependencies'
+    workingDirectory: src
+
+  - script: dotnet build --configuration Release
+    displayName: 'Build'
+    workingDirectory: src
+
+  - script: jq 'del(.definitions.securitySchemes, .security)' src/WebApi/WebApi_cc.json > out/WebApi_cc.json
+    displayName: 'Clean OpenAPI document'
+    
+  - script: cat src/WebApi/WebApi_cc.json
+    displayName: 'Curiosity'
+
+#  - script: |
+#      pac auth create \
+#        --environment ${{ parameters.environmentUrl }} \
+#        --tenant $(TenantId) \
+#        --applicationId $(ApplicationId) \
+#        --clientSecret $(ClientSecret)
+#    displayName: 'Authenticate with PowerApps CLI'
+    # TenantId, ApplicationId and ClientSecret comes from 'Some group'
+
+
+#  - script: pac connector download --connector-id ${{ parameters.connectorId }} --outputDirectory out
+#    displayName: 'Download Custom Connector'
+  - script: mv temp.json out/apiDefinition.json
+    displayName: 'Create empty Custom Connector definition'
+
+  - script: jq 'del(.paths, .info, .definitions)' out/apiDefinition.json > out/base.json
+    displayName: 'Clean downloaded Custom Connector definition'
+
+  - script: rm out/apiDefinition.json
+    displayName: 'Remove old Custom Connector definition'
+
+  - script: jq -s '.[0] + .[1]' out/base.json out/WebApi_cc.json > out/apiDefinition.json
+    displayName: 'Combine base with Swagger 2.0'
+
+  - script: cat out/apiDefinition.json
+    displayName: 'Display Custom Connector definition'
+
+#  - script: |
+#      pac connector update \
+#        --environment ${{ parameters.environmentUrl }} \
+#        --connector-id ${{ parameters.connectorId }} \
+#        --api-definition-file out/apiDefinition.json \
+#        --api-properties-file out/apiProperties.json \
+#        --icon-file out/icon.png
+#    displayName: 'Update Custom Connector'
+#
+#  - script: |
+#      pac solution publish
+#    displayName: 'Publish solution - for good measure'
